@@ -1,0 +1,90 @@
+name: Otomatik Komutlu Multi VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      ozel_komut:
+        description: 'Sunucular acildiginda otomatik calisacak komut (Bos birakabilirsin)'
+        required: false
+        default: 'echo "Otomatik komut calisti!" > ~/durum.txt'
+
+jobs:
+  vps:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 256
+      matrix:
+        os: 
+          - ubuntu-24.04
+          - ubuntu-22.04
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - ubuntu-22.04-arm
+        id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] # Istedigin kadar artirabilirsin
+
+    steps:
+      - name: SSH, Tunel ve Otomatik Komut Baslat
+        env:
+          DISCORD_WEBHOOK: ""
+          KULLANICI_KOMUTU: ${{ github.event.inputs.ozel_komut }}
+        run: |
+          echo "runner:Kawauchi123!" | sudo chpasswd
+          
+          sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          echo "PasswordAuthentication yes" | sudo tee -a /etc/ssh/sshd_config.d/custom.conf >/dev/null
+          sudo service ssh restart || sudo systemctl restart ssh
+
+          mkdir -p ~/.ssh
+          ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q <<< y >/dev/null 2>&1 || true
+
+          # ====================================================================
+          # 1. YONTEM: SABIT KOMUTLARINI BURAYA YAZABILIRSIN
+          # (Sürekli çalışacak bir işlemse sonuna & koyarak arka plana at)
+          # ====================================================================
+          
+          # Örnek 1: Paket kurmak veya dosya indirmek
+          # sudo apt-get update && sudo apt-get install -y python3-pip screen htop
+          
+          # Örnek 2: Bir Python veya Bash scriptini indirip arka planda başlatmak:
+          # curl -sL https://siteadin.com/script.py -o ~/script.py
+          # nohup python3 ~/script.py > ~/script.log 2>&1 &
+
+          # ====================================================================
+          # 2. YONTEM: RUN WORKFLOW EKRANINDAN GIRILEN KOMUTU CALISTIRIR
+          # ====================================================================
+          if [ -n "$KULLANICI_KOMUTU" ]; then
+            echo "Ozel komut arka planda baslatiliyor: $KULLANICI_KOMUTU"
+            nohup bash -c "$KULLANICI_KOMUTU" > ~/otomatik_komut.log 2>&1 &
+          fi
+
+          # Tunelleri baslat
+          sleep $(( (RANDOM % 25) + 1 ))
+          nohup ssh -p 443 -R0:localhost:22 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 tcp@a.pinggy.io > /tmp/pinggy.log 2>&1 </dev/null &
+          nohup ssh -R 0:localhost:22 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 serveo.net > /tmp/serveo.log 2>&1 </dev/null &
+
+          sleep 8
+
+          PINGGY_RAW=$(grep -oE "tcp://[a-zA-Z0-9.-]+:[0-9]+" /tmp/pinggy.log | head -n 1)
+          PINGGY_HOST=$(echo "$PINGGY_RAW" | sed -E 's|tcp://([^:]+):([0-9]+)|\1|')
+          PINGGY_PORT=$(echo "$PINGGY_RAW" | sed -E 's|tcp://([^:]+):([0-9]+)|\2|')
+
+          SERVEO_RAW=$(grep -oE "[a-zA-Z0-9.-]+\.[a-z]+:[0-9]+" /tmp/serveo.log | head -n 1)
+          SERVEO_HOST=$(echo "$SERVEO_RAW" | cut -d: -f1)
+          SERVEO_PORT=$(echo "$SERVEO_RAW" | cut -d: -f2)
+
+          SSH_CMD_PINGGY="ssh -p $PINGGY_PORT runner@$PINGGY_HOST"
+          SSH_CMD_SERVEO="ssh -p $SERVEO_PORT runner@$SERVEO_HOST"
+
+          for i in {1..700}; do
+            echo "=========================================================="
+            echo "SUNUCU: ${{ matrix.os }} (#${{ matrix.id }}) | Sifre: Kawauchi123!"
+            echo "DIREKT KOPYALA (Pinggy) : $SSH_CMD_PINGGY"
+            echo "DIREKT KOPYALA (Serveo) : $SSH_CMD_SERVEO"
+            echo "--- Otomatik Komut Ciktisi (Son 5 Satir) ---"
+            tail -n 5 ~/otomatik_komut.log 2>/dev/null || true
+            echo "=========================================================="
+            sleep 30
+          done
