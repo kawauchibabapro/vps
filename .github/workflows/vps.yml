@@ -27,9 +27,11 @@ jobs:
     steps:
       - name: SSH, Tunel ve Otomatik Komut Baslat
         env:
-          DISCORD_WEBHOOK: ""
           KULLANICI_KOMUTU: ${{ github.event.inputs.ozel_komut }}
         run: |
+          # SIGTERM (143) sinyallerini yoksay (Scriptin ana sureci oldurmesini engeller!)
+          trap '' TERM INT HUP
+
           echo "runner:Kawauchi123!" | sudo chpasswd
           
           sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
@@ -40,28 +42,8 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q <<< y >/dev/null 2>&1 || true
 
-          # ====================================================================
-          # 1. YONTEM: SABIT KOMUTLARINI BURAYA YAZABILIRSIN
-          # (Sürekli çalışacak bir işlemse sonuna & koyarak arka plana at)
-          # ====================================================================
-          
-          # Örnek 1: Paket kurmak veya dosya indirmek
-          # sudo apt-get update && sudo apt-get install -y python3-pip screen htop
-          
-          # Örnek 2: Bir Python veya Bash scriptini indirip arka planda başlatmak:
-          # curl -sL https://siteadin.com/script.py -o ~/script.py
-          # nohup python3 ~/script.py > ~/script.log 2>&1 &
-
-          # ====================================================================
-          # 2. YONTEM: RUN WORKFLOW EKRANINDAN GIRILEN KOMUTU CALISTIRIR
-          # ====================================================================
-          if [ -n "$KULLANICI_KOMUTU" ]; then
-            echo "Ozel komut arka planda baslatiliyor: $KULLANICI_KOMUTU"
-            nohup bash -c "$KULLANICI_KOMUTU" > ~/otomatik_komut.log 2>&1 &
-          fi
-
-          # Tunelleri baslat
-          sleep $(( (RANDOM % 25) + 1 ))
+          # 1. ONCE TUNELLERI BASLAT
+          sleep $(( (RANDOM % 20) + 1 ))
           nohup ssh -p 443 -R0:localhost:22 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 tcp@a.pinggy.io > /tmp/pinggy.log 2>&1 </dev/null &
           nohup ssh -R 0:localhost:22 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 serveo.net > /tmp/serveo.log 2>&1 </dev/null &
 
@@ -78,13 +60,18 @@ jobs:
           SSH_CMD_PINGGY="ssh -p $PINGGY_PORT runner@$PINGGY_HOST"
           SSH_CMD_SERVEO="ssh -p $SERVEO_PORT runner@$SERVEO_HOST"
 
+          # 2. OZEL KOMUTU TAMAMEN IZOLE OTURUMDA (setsid) BASLAT
+          if [ -n "$KULLANICI_KOMUTU" ]; then
+            echo "Ozel komut izole oturumda baslatiliyor..."
+            setsid bash -c "$KULLANICI_KOMUTU" </dev/null > ~/otomatik_komut.log 2>&1 &
+          fi
+
+          # 3. SUNUCUYU 6 SAAT ACIK TUT
           for i in {1..700}; do
             echo "=========================================================="
             echo "SUNUCU: ${{ matrix.os }} (#${{ matrix.id }}) | Sifre: Kawauchi123!"
             echo "DIREKT KOPYALA (Pinggy) : $SSH_CMD_PINGGY"
             echo "DIREKT KOPYALA (Serveo) : $SSH_CMD_SERVEO"
-            echo "--- Otomatik Komut Ciktisi (Son 5 Satir) ---"
-            tail -n 5 ~/otomatik_komut.log 2>/dev/null || true
             echo "=========================================================="
             sleep 30
           done
